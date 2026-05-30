@@ -5,11 +5,13 @@ namespace App\Http\Controllers\Mailer;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Mailer\ContactImportRequest;
 use App\Models\MailContact;
-use App\Services\ContactImportEmailExtractor;
 use App\Models\MailContactBatch;
+use App\Services\ContactImportEmailExtractor;
 use App\Models\MailSuppression;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -134,6 +136,37 @@ class ContactController extends Controller
 
     public function store(ContactImportRequest $request): RedirectResponse
     {
+        $user = $request->user();
+        $validEmails = $this->validatedEmailsFromImportRequest($request);
+        if ($validEmails instanceof RedirectResponse) {
+            return $validEmails;
+        }
+
+        $batchName = trim((string) $request->input('batch_name', ''));
+        $batch = $batchName === '' ? null : $user?->mailContactBatches()->firstOrCreate(['name' => $batchName]);
+
+        $created = $this->persistImportedContacts($user, $validEmails, $batch);
+
+        return back()->with('status', "contacts-imported:{$created}");
+    }
+
+    public function importToBatch(ContactImportRequest $request, MailContactBatch $batch): RedirectResponse
+    {
+        $user = $request->user();
+        abort_unless($batch->user_id === $user?->id, 404);
+
+        $validEmails = $this->validatedEmailsFromImportRequest($request);
+        if ($validEmails instanceof RedirectResponse) {
+            return $validEmails;
+        }
+
+        $created = $this->persistImportedContacts($user, $validEmails, $batch);
+
+        return back()->with('status', "contacts-imported:{$created}");
+    }
+
+    private function validatedEmailsFromImportRequest(ContactImportRequest $request): Collection|RedirectResponse
+    {
         $emails = collect($this->emailExtractor->fromText((string) $request->input('emails_text', '')));
 
         if ($request->hasFile('csv_file')) {
@@ -150,16 +183,21 @@ class ContactController extends Controller
             return back()->withErrors(['emails_text' => 'Please provide at least one valid email.']);
         }
 
-        $validEmails = $emails->filter(fn (string $email): bool => filter_var($email, FILTER_VALIDATE_EMAIL) !== false);
+        $validEmails = $emails->filter(fn (string $email): bool => filter_var($email, FILTER_VALIDATE_EMAIL) !== false)->values();
         if ($validEmails->isEmpty()) {
             return back()->withErrors(['emails_text' => 'No valid email addresses were found.']);
         }
 
-        $user = $request->user();
+        return $validEmails;
+    }
+
+    /**
+     * @param  Collection<int, string>  $validEmails
+     */
+    private function persistImportedContacts(?User $user, Collection $validEmails, ?MailContactBatch $batch): int
+    {
         $created = 0;
         $contactIds = [];
-        $batchName = trim((string) $request->input('batch_name', ''));
-        $batch = $batchName === '' ? null : $user?->mailContactBatches()->firstOrCreate(['name' => $batchName]);
 
         foreach ($validEmails as $email) {
             $result = $user?->mailContacts()->updateOrCreate(
@@ -180,7 +218,7 @@ class ContactController extends Controller
             $batch->contacts()->syncWithoutDetaching($contactIds);
         }
 
-        return back()->with('status', "contacts-imported:{$created}");
+        return $created;
     }
 
     public function destroy(Request $request, MailContact $contact): RedirectResponse

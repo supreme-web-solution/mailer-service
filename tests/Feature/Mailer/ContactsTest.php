@@ -63,6 +63,29 @@ class ContactsTest extends TestCase
         ]);
     }
 
+    public function test_contact_import_can_add_emails_to_existing_batch(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $batch = MailContactBatch::query()->create([
+            'user_id' => $user->id,
+            'name' => 'Existing Batch',
+        ]);
+
+        $this->post("/mailer/contacts/batches/{$batch->id}/import", [
+            'emails_text' => 'added@example.com',
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('mail_contacts', [
+            'user_id' => $user->id,
+            'email' => 'added@example.com',
+        ]);
+        $this->assertDatabaseHas('mail_contact_batch_members', [
+            'mail_contact_batch_id' => $batch->id,
+        ]);
+    }
+
     public function test_contact_import_can_create_and_attach_batch(): void
     {
         $user = User::factory()->create();

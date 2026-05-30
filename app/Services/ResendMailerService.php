@@ -11,10 +11,21 @@ class ResendMailerService
     /**
      * @return array{ok:bool,message_id:?string,error:?string}
      */
-    public function sendEmail(string $toEmail, string $subject, string $html): array
-    {
+    public function sendEmail(
+        string $toEmail,
+        string $subject,
+        string $html,
+        ?int $campaignId = null,
+        ?int $recipientId = null,
+    ): array {
         $apiKey = trim((string) config('services.resend.key', ''));
         if ($apiKey === '') {
+            Log::error('mailer.resend.not_configured', [
+                'campaign_id' => $campaignId,
+                'recipient_id' => $recipientId,
+                'email' => $toEmail,
+            ]);
+
             return [
                 'ok' => false,
                 'message_id' => null,
@@ -25,6 +36,14 @@ class ResendMailerService
         $from = trim((string) config('services.resend.from', config('mail.from.address')));
         $from = $from !== '' ? $from : 'onboarding@resend.dev';
 
+        Log::info('mailer.resend.request', [
+            'campaign_id' => $campaignId,
+            'recipient_id' => $recipientId,
+            'email' => $toEmail,
+            'from' => $from,
+            'subject' => $subject,
+        ]);
+
         $response = $this->postEmailWithRetry($apiKey, [
             'from' => $from,
             'to' => [$toEmail],
@@ -34,6 +53,8 @@ class ResendMailerService
 
         if (! $response->successful()) {
             Log::warning('mailer.resend.send_failed', [
+                'campaign_id' => $campaignId,
+                'recipient_id' => $recipientId,
                 'email' => $toEmail,
                 'status' => $response->status(),
                 'body' => $response->body(),
@@ -46,9 +67,18 @@ class ResendMailerService
             ];
         }
 
+        $messageId = (string) data_get($response->json(), 'id', '');
+
+        Log::info('mailer.resend.sent', [
+            'campaign_id' => $campaignId,
+            'recipient_id' => $recipientId,
+            'email' => $toEmail,
+            'provider_message_id' => $messageId,
+        ]);
+
         return [
             'ok' => true,
-            'message_id' => (string) data_get($response->json(), 'id', ''),
+            'message_id' => $messageId,
             'error' => null,
         ];
     }
@@ -68,6 +98,12 @@ class ResendMailerService
         }
 
         $retryAfter = (int) ($response->header('retry-after') ?? 0);
+        Log::info('mailer.resend.retry', [
+            'status' => $response->status(),
+            'attempt' => $attempt + 1,
+            'retry_after_seconds' => $retryAfter,
+            'email' => $payload['to'][0] ?? null,
+        ]);
         $retryDelay = $retryAfter > 0
             ? min(30, max(1, $retryAfter))
             : min(30, (int) pow(2, $attempt + 1));

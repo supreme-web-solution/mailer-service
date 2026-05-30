@@ -5,6 +5,7 @@ import {
     Mail,
     Send,
     Trash2,
+    Upload,
     UserMinus,
     Users,
 } from 'lucide-vue-next';
@@ -12,6 +13,15 @@ import { computed, ref } from 'vue';
 import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { dashboard } from '@/routes';
 
@@ -75,6 +85,26 @@ const form = useForm({
 
 const submit = (): void => {
     form.post('/mailer/send', { preserveScroll: true });
+};
+
+const importModalOpen = ref(false);
+const importForm = useForm<{
+    emails_text: string;
+    csv_file: File | null;
+}>({
+    emails_text: '',
+    csv_file: null,
+});
+
+const importContacts = (): void => {
+    importForm.post(`/mailer/contacts/batches/${props.batch.id}/import`, {
+        preserveScroll: true,
+        forceFormData: true,
+        onSuccess: () => {
+            importForm.reset('emails_text', 'csv_file');
+            importModalOpen.value = false;
+        },
+    });
 };
 
 const activeTab = ref<'contacts' | 'unsubscribed'>('contacts');
@@ -168,13 +198,68 @@ function avatarColor(id: number) {
                     </p>
                 </div>
             </div>
-            <Link
-                href="/mailer/contacts"
-                class="inline-flex items-center gap-1.5 self-start rounded-lg border bg-card px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-accent"
-            >
-                <ArrowLeft class="h-3.5 w-3.5" />
-                Back to batches
-            </Link>
+            <div class="flex flex-wrap items-center gap-2 self-start">
+                <Dialog v-model:open="importModalOpen">
+                    <DialogTrigger as-child>
+                        <Button variant="outline" class="gap-2 shadow-sm">
+                            <Upload class="h-4 w-4" />
+                            Add contacts
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <form class="space-y-4" @submit.prevent="importContacts">
+                            <DialogHeader>
+                                <DialogTitle>Add to {{ props.batch.name }}</DialogTitle>
+                                <DialogDescription>
+                                    Paste emails or upload CSV, TXT, or Excel. New addresses are added to this batch.
+                                </DialogDescription>
+                            </DialogHeader>
+
+                            <div class="grid gap-2">
+                                <Label for="batch_emails_text">Paste emails</Label>
+                                <textarea
+                                    id="batch_emails_text"
+                                    v-model="importForm.emails_text"
+                                    class="min-h-28 w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                    placeholder="one@email.com, two@email.com"
+                                />
+                                <InputError :message="importForm.errors.emails_text" />
+                            </div>
+
+                            <div class="grid gap-2">
+                                <Label for="batch_csv_file">Or upload CSV, TXT, or Excel</Label>
+                                <input
+                                    id="batch_csv_file"
+                                    type="file"
+                                    accept=".csv,.txt,.xlsx"
+                                    class="rounded-lg border bg-background px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-primary/10 file:px-3 file:py-1 file:text-xs file:font-medium file:text-primary"
+                                    @change="importForm.csv_file = ($event.target as HTMLInputElement).files?.[0] ?? null"
+                                />
+                                <InputError :message="importForm.errors.csv_file" />
+                            </div>
+
+                            <DialogFooter>
+                                <Button type="button" variant="outline" @click="importModalOpen = false">Cancel</Button>
+                                <Button
+                                    type="submit"
+                                    :disabled="importForm.processing || (!importForm.emails_text.trim() && !importForm.csv_file)"
+                                    class="gap-2"
+                                >
+                                    <Users class="h-4 w-4" />
+                                    Add to batch
+                                </Button>
+                            </DialogFooter>
+                        </form>
+                    </DialogContent>
+                </Dialog>
+                <Link
+                    href="/mailer/contacts"
+                    class="inline-flex items-center gap-1.5 rounded-lg border bg-card px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-accent"
+                >
+                    <ArrowLeft class="h-3.5 w-3.5" />
+                    Back to batches
+                </Link>
+            </div>
         </div>
 
         <!-- Success notice -->
@@ -338,6 +423,10 @@ function avatarColor(id: number) {
                 <div>
                     <p class="font-semibold text-sm">No active contacts</p>
                     <p class="text-xs text-muted-foreground mt-1">This batch has no contacts yet.</p>
+                    <Button class="mt-2 gap-2" @click="importModalOpen = true">
+                        <Upload class="h-4 w-4" />
+                        Add contacts
+                    </Button>
                 </div>
             </div>
 

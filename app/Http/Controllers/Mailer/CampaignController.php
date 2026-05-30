@@ -9,7 +9,9 @@ use App\Models\MailCampaignRecipient;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+
 class CampaignController extends Controller
 {
     public function create(Request $request): RedirectResponse
@@ -73,8 +75,20 @@ class CampaignController extends Controller
             'status' => 'queued',
         ]);
 
+        Log::info('mailer.campaign.queued', [
+            'campaign_id' => $campaign->id,
+            'user_id' => $campaign->user_id,
+            'template_id' => $campaign->mail_template_id,
+            'recipient_count' => $recipientCount,
+            'recipient_mode' => $validated['recipient_mode'] ?? 'all',
+            'recipient_batch_id' => $validated['recipient_batch_id'] ?? null,
+            'queue' => config('mailer.queue', 'mailers'),
+            'queue_connection' => config('queue.default'),
+        ]);
+
         $chunkSize = max(1, (int) config('mailer.chunk_size', 200));
-        $contactsQuery?->orderBy('id')->chunkById($chunkSize, function ($contacts) use ($campaign): void {
+        $jobsDispatched = 0;
+        $contactsQuery?->orderBy('id')->chunkById($chunkSize, function ($contacts) use ($campaign, &$jobsDispatched): void {
             $rows = [];
             $chunkEmails = [];
             $now = now();
@@ -108,8 +122,20 @@ class CampaignController extends Controller
 
             if ($recipientIds !== []) {
                 SendCampaignChunkJob::dispatch($campaign->id, $recipientIds);
+                $jobsDispatched++;
+
+                Log::info('mailer.campaign.chunk_dispatched', [
+                    'campaign_id' => $campaign->id,
+                    'recipient_ids_count' => count($recipientIds),
+                    'queue' => config('mailer.queue', 'mailers'),
+                ]);
             }
         });
+
+        Log::info('mailer.campaign.dispatch_complete', [
+            'campaign_id' => $campaign->id,
+            'jobs_dispatched' => $jobsDispatched,
+        ]);
 
         return back()->with('status', 'campaign-queued');
     }

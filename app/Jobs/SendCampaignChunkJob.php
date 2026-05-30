@@ -30,16 +30,32 @@ class SendCampaignChunkJob implements ShouldQueue
 
     public function handle(ResendMailerService $mailer): void
     {
+        Log::info('mailer.campaign_chunk.started', [
+            'campaign_id' => $this->campaignId,
+            'recipient_ids_count' => count($this->recipientIds),
+            'queue' => $this->queue,
+        ]);
+
         $campaign = MailCampaign::query()
             ->with(['template:id,subject,body'])
             ->find($this->campaignId);
 
         if (! $campaign || ! $campaign->template) {
+            Log::warning('mailer.campaign_chunk.skipped', [
+                'campaign_id' => $this->campaignId,
+                'reason' => ! $campaign ? 'campaign_not_found' : 'template_missing',
+            ]);
+
             return;
         }
 
         if ($campaign->status === 'queued') {
             $campaign->update(['status' => 'sending']);
+
+            Log::info('mailer.campaign.status_changed', [
+                'campaign_id' => $campaign->id,
+                'status' => 'sending',
+            ]);
         }
 
         $recipients = MailCampaignRecipient::query()
@@ -47,6 +63,15 @@ class SendCampaignChunkJob implements ShouldQueue
             ->whereIn('id', $this->recipientIds)
             ->where('status', 'pending')
             ->get();
+
+        Log::info('mailer.campaign_chunk.processing', [
+            'campaign_id' => $campaign->id,
+            'pending_recipients' => $recipients->count(),
+        ]);
+
+        $sentCount = 0;
+        $failedCount = 0;
+        $suppressedCount = 0;
 
         /** @var MailCampaignRecipient $recipient */
         foreach ($recipients as $recipient) {
@@ -62,13 +87,30 @@ class SendCampaignChunkJob implements ShouldQueue
                     'last_error' => 'Address is suppressed.',
                 ]);
 
+                $suppressedCount++;
+
+                Log::info('mailer.recipient.suppressed', [
+                    'campaign_id' => $campaign->id,
+                    'recipient_id' => $recipient->id,
+                    'email' => $recipient->email,
+                ]);
+
                 continue;
             }
+
+            Log::info('mailer.recipient.sending', [
+                'campaign_id' => $campaign->id,
+                'recipient_id' => $recipient->id,
+                'email' => $recipient->email,
+                'subject' => $campaign->subject,
+            ]);
 
             $result = $mailer->sendEmail(
                 $recipient->email,
                 $campaign->subject,
-                $this->appendUnsubscribeLink($campaign->template->body, $recipient->unsubscribe_token)
+                $this->appendUnsubscribeLink($campaign->template->body, $recipient->unsubscribe_token),
+                $campaign->id,
+                $recipient->id,
             );
 
             if ($result['ok']) {
@@ -77,6 +119,15 @@ class SendCampaignChunkJob implements ShouldQueue
                     'provider_message_id' => $result['message_id'],
                     'sent_at' => now(),
                     'last_error' => null,
+                ]);
+
+                $sentCount++;
+
+                Log::info('mailer.recipient.sent', [
+                    'campaign_id' => $campaign->id,
+                    'recipient_id' => $recipient->id,
+                    'email' => $recipient->email,
+                    'provider_message_id' => $result['message_id'],
                 ]);
 
                 continue;
@@ -88,6 +139,8 @@ class SendCampaignChunkJob implements ShouldQueue
                 'last_error' => $result['error'],
             ]);
 
+            $failedCount++;
+
             Log::warning('mailer.recipient.send_failed', [
                 'campaign_id' => $campaign->id,
                 'recipient_id' => $recipient->id,
@@ -96,7 +149,23 @@ class SendCampaignChunkJob implements ShouldQueue
             ]);
         }
 
+        Log::info('mailer.campaign_chunk.completed', [
+            'campaign_id' => $campaign->id,
+            'sent' => $sentCount,
+            'failed' => $failedCount,
+            'suppressed' => $suppressedCount,
+        ]);
+
         $this->syncCampaignCounters($campaign);
+    }
+
+    public function failed(?\Throwable $exception): void
+    {
+        Log::error('mailer.campaign_chunk.job_failed', [
+            'campaign_id' => $this->campaignId,
+            'recipient_ids_count' => count($this->recipientIds),
+            'message' => $exception?->getMessage(),
+        ]);
     }
 
     private function appendUnsubscribeLink(string $html, string $token): string
@@ -134,6 +203,14 @@ class SendCampaignChunkJob implements ShouldQueue
             'failed_count' => $failedTotal,
             'status' => $status,
             'sent_at' => $pendingTotal === 0 ? now() : null,
+        ]);
+
+        Log::info('mailer.campaign.counters_synced', [
+            'campaign_id' => $campaign->id,
+            'status' => $status,
+            'sent_count' => $sentTotal,
+            'failed_count' => $failedTotal,
+            'pending_count' => $pendingTotal,
         ]);
     }
 }
