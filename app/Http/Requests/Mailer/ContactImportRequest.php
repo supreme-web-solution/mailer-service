@@ -23,7 +23,7 @@ class ContactImportRequest extends FormRequest
     {
         return [
             'emails_text' => ['nullable', 'string'],
-            'csv_file' => ['nullable', 'file', 'mimes:csv,txt', 'max:2048'],
+            'csv_file' => ['nullable', 'file', 'mimes:csv,txt,xlsx', 'max:10240'],
             'batch_name' => ['nullable', 'string', 'max:120'],
         ];
     }

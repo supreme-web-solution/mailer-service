@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Mailer;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Mailer\ContactImportRequest;
 use App\Models\MailContact;
+use App\Services\ContactImportEmailExtractor;
 use App\Models\MailContactBatch;
 use App\Models\MailSuppression;
 use Illuminate\Http\RedirectResponse;
@@ -14,6 +15,10 @@ use Inertia\Response;
 
 class ContactController extends Controller
 {
+    public function __construct(
+        private readonly ContactImportEmailExtractor $emailExtractor,
+    ) {}
+
     public function index(Request $request): Response
     {
         $user = $request->user();
@@ -129,13 +134,10 @@ class ContactController extends Controller
 
     public function store(ContactImportRequest $request): RedirectResponse
     {
-        $emails = collect($this->extractEmailsFromText((string) $request->input('emails_text', '')));
+        $emails = collect($this->emailExtractor->fromText((string) $request->input('emails_text', '')));
 
         if ($request->hasFile('csv_file')) {
-            $fileContent = file_get_contents((string) $request->file('csv_file')?->getRealPath());
-            if (is_string($fileContent) && trim($fileContent) !== '') {
-                $emails = $emails->merge($this->extractEmailsFromCsv($fileContent));
-            }
+            $emails = $emails->merge($this->emailExtractor->fromUploadedFile($request->file('csv_file')));
         }
 
         $emails = $emails
@@ -220,41 +222,5 @@ class ContactController extends Controller
         $batch?->contacts()->syncWithoutDetaching($contactIds);
 
         return back()->with('status', 'batch-saved');
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function extractEmailsFromText(string $input): array
-    {
-        if (trim($input) === '') {
-            return [];
-        }
-
-        preg_match_all('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i', $input, $matches);
-
-        return array_values($matches[0] ?? []);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function extractEmailsFromCsv(string $csv): array
-    {
-        $lines = preg_split('/\r\n|\r|\n/', $csv) ?: [];
-        $emails = [];
-
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if ($line === '') {
-                continue;
-            }
-
-            foreach (str_getcsv($line) as $cell) {
-                $emails = [...$emails, ...$this->extractEmailsFromText((string) $cell)];
-            }
-        }
-
-        return $emails;
     }
 }

@@ -152,11 +152,11 @@ function batchColor(id: number) {
                         </div>
 
                         <div class="grid gap-2">
-                            <Label for="csv_file">Or upload CSV / TXT</Label>
+                            <Label for="csv_file">Or upload CSV, TXT, or Excel</Label>
                             <input
                                 id="csv_file"
                                 type="file"
-                                accept=".csv,.txt"
+                                accept=".csv,.txt,.xlsx"
                                 class="rounded-lg border bg-background px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-primary/10 file:px-3 file:py-1 file:text-xs file:font-medium file:text-primary"
                                 @change="form.csv_file = ($event.target as HTMLInputElement).files?.[0] ?? null"
                             />
