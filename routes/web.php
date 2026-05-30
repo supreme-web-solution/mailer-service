@@ -23,7 +23,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         Route::get('contacts', [ContactController::class, 'index'])->name('contacts.index');
         Route::get('contacts/batches/{batch}', [ContactController::class, 'showBatch'])->name('contacts.batches.show');
+        Route::delete('contacts/batches/{batch}', [ContactController::class, 'destroyBatch'])->name('contacts.batches.destroy');
         Route::post('contacts/batches/{batch}/import', [ContactController::class, 'importToBatch'])->name('contacts.batches.import');
+        Route::post('contacts/batches/{batch}/unsubscribe', [ContactController::class, 'unsubscribeBatchContacts'])->name('contacts.batches.contacts.unsubscribe');
+        Route::post('contacts/batches/{batch}/contacts/{contact}/unsubscribe', [ContactController::class, 'unsubscribeBatchContact'])->name('contacts.batches.contacts.unsubscribe.single');
         Route::delete('contacts/batches/{batch}/unsubscribed/{suppression}', [ContactController::class, 'destroyBatchSuppression'])
             ->name('contacts.batches.unsubscribed.destroy');
         Route::delete('contacts/batches/{batch}/unsubscribed', [ContactController::class, 'bulkDestroyBatchSuppressions'])

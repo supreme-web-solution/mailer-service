@@ -3,6 +3,7 @@ import { Head, Link, useForm } from '@inertiajs/vue3';
 import {
     ChevronRight,
     Layers,
+    Trash2,
     Upload,
     Users,
 } from 'lucide-vue-next';
@@ -64,6 +65,15 @@ const form = useForm<{
 });
 
 const importModalOpen = ref(false);
+const deleteBatchForm = useForm({});
+
+const deleteBatch = (batchId: number, batchName: string): void => {
+    if (!confirm(`Delete batch "${batchName}"? Contacts are kept but removed from this batch.`)) {
+        return;
+    }
+
+    deleteBatchForm.delete(`/mailer/contacts/batches/${batchId}`);
+};
 
 const importContacts = (): void => {
     form.post('/mailer/contacts/import', {
@@ -241,30 +251,44 @@ function batchColor(id: number) {
 
             <!-- Batch grid -->
             <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <Link
+                <div
                     v-for="batch in props.batches.data"
                     :key="batch.id"
-                    :href="`/mailer/contacts/batches/${batch.id}`"
-                    class="group flex items-center gap-4 rounded-xl border bg-card p-4 shadow-sm ring-1 ring-border/40 transition-all hover:bg-accent hover:shadow-md hover:ring-primary/30"
+                    class="group flex items-center gap-2 rounded-xl border bg-card p-4 shadow-sm ring-1 ring-border/40 transition-all hover:shadow-md hover:ring-primary/30"
                 >
-                    <!-- Avatar -->
-                    <div
-                        class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold"
-                        :class="batchColor(batch.id)"
+                    <Link
+                        :href="`/mailer/contacts/batches/${batch.id}`"
+                        class="flex min-w-0 flex-1 items-center gap-4 hover:opacity-90"
                     >
-                        {{ batchInitials(batch.name) }}
-                    </div>
+                        <div
+                            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold"
+                            :class="batchColor(batch.id)"
+                        >
+                            {{ batchInitials(batch.name) }}
+                        </div>
 
-                    <!-- Info -->
-                    <div class="min-w-0 flex-1">
-                        <p class="truncate font-semibold text-sm">{{ batch.name }}</p>
-                        <p class="text-xs text-muted-foreground mt-0.5">
-                            {{ batch.contacts_count.toLocaleString() }} contact{{ batch.contacts_count !== 1 ? 's' : '' }}
-                        </p>
-                    </div>
+                        <div class="min-w-0 flex-1">
+                            <p class="truncate font-semibold text-sm">{{ batch.name }}</p>
+                            <p class="text-xs text-muted-foreground mt-0.5">
+                                {{ batch.contacts_count.toLocaleString() }} contact{{ batch.contacts_count !== 1 ? 's' : '' }}
+                            </p>
+                        </div>
 
-                    <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                </Link>
+                        <ChevronRight class="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                    </Link>
+
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        class="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                        :disabled="deleteBatchForm.processing"
+                        title="Delete batch"
+                        @click="deleteBatch(batch.id, batch.name)"
+                    >
+                        <Trash2 class="h-4 w-4" />
+                    </Button>
+                </div>
             </div>
 
             <!-- Pagination -->

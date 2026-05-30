@@ -63,6 +63,85 @@ class ContactsTest extends TestCase
         ]);
     }
 
+    public function test_user_can_delete_batch(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $batch = MailContactBatch::query()->create([
+            'user_id' => $user->id,
+            'name' => 'To Delete',
+        ]);
+
+        $this->delete("/mailer/contacts/batches/{$batch->id}")
+            ->assertRedirect(route('mailer.contacts.index'));
+
+        $this->assertDatabaseMissing('mail_contact_batches', ['id' => $batch->id]);
+    }
+
+    public function test_user_can_manually_unsubscribe_batch_contact(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $batch = MailContactBatch::query()->create([
+            'user_id' => $user->id,
+            'name' => 'Batch',
+        ]);
+
+        $contact = MailContact::query()->create([
+            'user_id' => $user->id,
+            'email' => 'unsub-me@example.com',
+            'is_active' => true,
+        ]);
+        $batch->contacts()->sync([$contact->id]);
+
+        $this->post("/mailer/contacts/batches/{$batch->id}/contacts/{$contact->id}/unsubscribe")
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('mail_suppressions', [
+            'user_id' => $user->id,
+            'email' => 'unsub-me@example.com',
+            'reason' => 'manual',
+        ]);
+    }
+
+    public function test_user_can_bulk_unsubscribe_batch_contacts(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user);
+
+        $batch = MailContactBatch::query()->create([
+            'user_id' => $user->id,
+            'name' => 'Batch',
+        ]);
+
+        $first = MailContact::query()->create([
+            'user_id' => $user->id,
+            'email' => 'first-unsub@example.com',
+            'is_active' => true,
+        ]);
+        $second = MailContact::query()->create([
+            'user_id' => $user->id,
+            'email' => 'second-unsub@example.com',
+            'is_active' => true,
+        ]);
+        $batch->contacts()->sync([$first->id, $second->id]);
+
+        $this->post("/mailer/contacts/batches/{$batch->id}/unsubscribe", [
+            'contact_ids' => [$first->id, $second->id],
+        ])->assertRedirect();
+
+        $this->assertDatabaseHas('mail_suppressions', [
+            'user_id' => $user->id,
+            'email' => 'first-unsub@example.com',
+        ]);
+        $this->assertDatabaseHas('mail_suppressions', [
+            'user_id' => $user->id,
+            'email' => 'second-unsub@example.com',
+        ]);
+    }
+
     public function test_contact_import_can_add_emails_to_existing_batch(): void
     {
         $user = User::factory()->create();

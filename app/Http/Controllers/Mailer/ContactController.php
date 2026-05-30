@@ -96,6 +96,58 @@ class ContactController extends Controller
         ]);
     }
 
+    public function destroyBatch(Request $request, MailContactBatch $batch): RedirectResponse
+    {
+        abort_unless($batch->user_id === $request->user()?->id, 404);
+
+        $batch->delete();
+
+        return redirect()
+            ->route('mailer.contacts.index')
+            ->with('status', 'batch-deleted');
+    }
+
+    public function unsubscribeBatchContact(Request $request, MailContactBatch $batch, MailContact $contact): RedirectResponse
+    {
+        $user = $request->user();
+        abort_unless($batch->user_id === $user?->id, 404);
+        abort_unless($contact->user_id === $user?->id, 404);
+        abort_unless($this->contactBelongsToBatch($batch, $contact), 404);
+        abort_unless($user !== null, 403);
+
+        $this->suppressContact($user->id, $contact->email, 'manual');
+
+        return back()->with('status', 'contact-unsubscribed');
+    }
+
+    public function unsubscribeBatchContacts(Request $request, MailContactBatch $batch): RedirectResponse
+    {
+        $validated = $request->validate([
+            'contact_ids' => ['required', 'array', 'min:1'],
+            'contact_ids.*' => ['integer'],
+        ]);
+
+        $user = $request->user();
+        abort_unless($batch->user_id === $user?->id, 404);
+
+        $contacts = $batch->contacts()
+            ->where('mail_contacts.user_id', $user?->id)
+            ->whereIn('mail_contacts.id', $validated['contact_ids'])
+            ->get(['mail_contacts.id', 'mail_contacts.email']);
+
+        if ($contacts->isEmpty()) {
+            return back()->withErrors(['contact_ids' => 'Select at least one valid contact.']);
+        }
+
+        abort_unless($user !== null, 403);
+
+        foreach ($contacts as $contact) {
+            $this->suppressContact($user->id, $contact->email, 'manual');
+        }
+
+        return back()->with('status', 'contacts-unsubscribed');
+    }
+
     public function destroyBatchSuppression(Request $request, MailContactBatch $batch, MailSuppression $suppression): RedirectResponse
     {
         $user = $request->user();
@@ -260,5 +312,25 @@ class ContactController extends Controller
         $batch?->contacts()->syncWithoutDetaching($contactIds);
 
         return back()->with('status', 'batch-saved');
+    }
+
+    private function contactBelongsToBatch(MailContactBatch $batch, MailContact $contact): bool
+    {
+        return $batch->contacts()
+            ->whereKey($contact->id)
+            ->exists();
+    }
+
+    private function suppressContact(int $userId, string $email, string $reason): void
+    {
+        MailSuppression::query()->updateOrCreate(
+            [
+                'user_id' => $userId,
+                'email' => strtolower($email),
+            ],
+            [
+                'reason' => $reason,
+            ]
+        );
     }
 }

@@ -2,7 +2,6 @@
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import {
     ArrowLeft,
-    Mail,
     Send,
     Trash2,
     Upload,
@@ -113,6 +112,11 @@ const bulkDeleteForm = useForm<{ suppression_ids: number[] }>({
     suppression_ids: [],
 });
 const selectedSuppressionIds = ref<number[]>([]);
+const selectedContactIds = ref<number[]>([]);
+const unsubscribeForm = useForm({});
+const bulkUnsubscribeForm = useForm<{ contact_ids: number[] }>({
+    contact_ids: [],
+});
 
 const toggleSuppression = (id: number): void => {
     if (selectedSuppressionIds.value.includes(id)) {
@@ -149,6 +153,53 @@ const bulkRemoveSuppressions = (): void => {
         onSuccess: () => {
             selectedSuppressionIds.value = [];
             bulkDeleteForm.reset('suppression_ids');
+        },
+    });
+};
+
+const toggleContact = (id: number): void => {
+    if (selectedContactIds.value.includes(id)) {
+        selectedContactIds.value = selectedContactIds.value.filter((item) => item !== id);
+        return;
+    }
+    selectedContactIds.value = [...selectedContactIds.value, id];
+};
+
+const allContactsSelected = computed(
+    () =>
+        props.contacts.data.length > 0 &&
+        selectedContactIds.value.length === props.contacts.data.length,
+);
+
+const toggleAllContacts = (): void => {
+    if (allContactsSelected.value) {
+        selectedContactIds.value = [];
+        return;
+    }
+    selectedContactIds.value = props.contacts.data.map((item) => item.id);
+};
+
+const unsubscribeContact = (contactId: number): void => {
+    if (!confirm('Unsubscribe this contact? They will not receive future campaigns.')) {
+        return;
+    }
+
+    unsubscribeForm.post(`/mailer/contacts/batches/${props.batch.id}/contacts/${contactId}/unsubscribe`, {
+        preserveScroll: true,
+    });
+};
+
+const bulkUnsubscribeContacts = (): void => {
+    if (!confirm(`Unsubscribe ${selectedContactIds.value.length} contact(s)? They will not receive future campaigns.`)) {
+        return;
+    }
+
+    bulkUnsubscribeForm.contact_ids = [...selectedContactIds.value];
+    bulkUnsubscribeForm.post(`/mailer/contacts/batches/${props.batch.id}/unsubscribe`, {
+        preserveScroll: true,
+        onSuccess: () => {
+            selectedContactIds.value = [];
+            bulkUnsubscribeForm.reset('contact_ids');
         },
     });
 };
@@ -433,12 +484,45 @@ function avatarColor(id: number) {
             <!-- List -->
             <Card v-else class="border-0 shadow-sm ring-1 ring-border/60">
                 <CardContent class="p-0">
+                    <div class="flex items-center justify-between border-b px-5 py-3">
+                        <label class="flex cursor-pointer items-center gap-2.5 text-sm font-medium">
+                            <input
+                                type="checkbox"
+                                :checked="allContactsSelected"
+                                class="h-4 w-4 rounded border-border accent-primary"
+                                @change="toggleAllContacts"
+                            />
+                            <span class="text-muted-foreground text-xs">
+                                {{ selectedContactIds.length > 0
+                                    ? `${selectedContactIds.length} selected`
+                                    : 'Select all on this page' }}
+                            </span>
+                        </label>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            class="h-7 gap-1.5 px-3 text-xs"
+                            :disabled="selectedContactIds.length === 0 || bulkUnsubscribeForm.processing"
+                            @click="bulkUnsubscribeContacts"
+                        >
+                            <UserMinus class="h-3 w-3" />
+                            Unsubscribe selected
+                        </Button>
+                    </div>
+
                     <div class="divide-y divide-border/60">
                         <div
                             v-for="contact in props.contacts.data"
                             :key="contact.id"
                             class="flex items-center gap-3 px-5 py-3 transition hover:bg-muted/30"
                         >
+                            <input
+                                type="checkbox"
+                                :checked="selectedContactIds.includes(contact.id)"
+                                class="h-4 w-4 shrink-0 rounded border-border accent-primary"
+                                @change="toggleContact(contact.id)"
+                            />
                             <div
                                 class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold"
                                 :class="avatarColor(contact.id)"
@@ -449,7 +533,17 @@ function avatarColor(id: number) {
                                 <p class="truncate text-sm font-medium">{{ contact.email }}</p>
                                 <p v-if="contact.name" class="text-xs text-muted-foreground">{{ contact.name }}</p>
                             </div>
-                            <Mail class="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                class="h-7 shrink-0 gap-1 px-2 text-xs text-muted-foreground hover:text-rose-600"
+                                :disabled="unsubscribeForm.processing"
+                                @click="unsubscribeContact(contact.id)"
+                            >
+                                <UserMinus class="h-3 w-3" />
+                                Unsubscribe
+                            </Button>
                         </div>
                     </div>
 
